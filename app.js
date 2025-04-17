@@ -1,26 +1,30 @@
-const userSelect = document.getElementById('userSelect');
+
 const startBtn = document.getElementById('startBtn');
 const stopBtn = document.getElementById('stopBtn');
+const userSelect = document.getElementById('userSelect');
 const logList = document.getElementById('logList');
 
 let activeRide = null;
 let rides = JSON.parse(localStorage.getItem('rides') || '[]');
+const scriptUrl = 'https://script.google.com/macros/s/AKfycbxAMtsUqTtXunpX5TB6kFp0hcjhCFlyBn3_-BCHKLti0vFTYJ6bqmxQmGlQel-8R4-t/exec';
 
 function renderLogs() {
   logList.innerHTML = '';
   rides.forEach((ride) => {
     const li = document.createElement('li');
-    let text = `${ride.user} — gestart om ${new Date(ride.start).toLocaleString()}`;
-    if (ride.startLat && ride.startLng) {
-      text += ` — 📍 Start: ${ride.startLat.toFixed(4)}, ${ride.startLng.toFixed(4)}`;
+    let html = `<strong>${ride.user}</strong> — gestart om ${new Date(ride.start).toLocaleString()}`;
+    if (ride.startLocation) {
+      html += `<br />📍 Startlocatie: <a href="https://maps.google.com/?q=${ride.startLocation.lat},${ride.startLocation.lng}" target="_blank">${ride.startLocation.lat.toFixed(4)}, ${ride.startLocation.lng.toFixed(4)}</a>`;
     }
     if (ride.stop) {
-      text += ` — gestopt om ${new Date(ride.stop).toLocaleString()}`;
-      if (ride.stopLat && ride.stopLng) {
-        text += ` — 📍 Stop: ${ride.stopLat.toFixed(4)}, ${ride.stopLng.toFixed(4)}`;
+      html += `<br />Gestopt om ${new Date(ride.stop).toLocaleString()}`;
+      if (ride.stopLocation) {
+        html += `<br />📍 Stoplocatie: <a href="https://maps.google.com/?q=${ride.stopLocation.lat},${ride.stopLocation.lng}" target="_blank">${ride.stopLocation.lat.toFixed(4)}, ${ride.stopLocation.lng.toFixed(4)}</a>`;
       }
     }
-    li.textContent = text;
+    const div = document.createElement('div');
+    div.innerHTML = html;
+    li.appendChild(div);
     logList.appendChild(li);
   });
 }
@@ -28,65 +32,63 @@ function renderLogs() {
 async function getLocation() {
   return new Promise((resolve, reject) => {
     if (!navigator.geolocation) {
-      reject("Locatie niet ondersteund.");
+      reject('Locatie niet ondersteund.');
     } else {
       navigator.geolocation.getCurrentPosition(
-        (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-        (err) => reject("Locatie niet beschikbaar.")
+        (position) => {
+          resolve({
+            lat: position.coords.latitude,
+            lng: position.coords.longitude,
+          });
+        },
+        (error) => {
+          reject('Locatie niet beschikbaar.');
+        }
       );
     }
   });
-}
-
-const formURL = "https://docs.google.com/forms/d/e/1FAIpQLSdhnddumqSs_YvP7o3Cb1_QyqKlzEe7vitZz7DnXvZwd4FwAw/formResponse";
-
-function sendToGoogleSheet(data) {
-  const formData = new FormData();
-  formData.append("entry.1525461618", data.user); // Naam
-  formData.append("entry.1045846172", data.start); // Starttijd
-  formData.append("entry.1851793238", `${data.startLat}, ${data.startLng}`); // Startlocatie
-  formData.append("entry.1490586052", data.stop); // Stoptijd
-  formData.append("entry.667201192", `${data.stopLat}, ${data.stopLng}`); // Stoplocatie
-  fetch(formURL, { method: "POST", mode: "no-cors", body: formData });
 }
 
 startBtn.onclick = async () => {
   const user = userSelect.value;
   if (!user || activeRide) return;
   try {
-    const loc = await getLocation();
-    const ride = {
-      user,
-      start: new Date().toISOString(),
-      startLat: loc.lat,
-      startLng: loc.lng,
-      stop: null,
-      stopLat: null,
-      stopLng: null,
-    };
-    activeRide = ride;
-    rides.push(ride);
+    const location = await getLocation();
+    activeRide = { user, start: new Date().toISOString(), stop: null, startLocation: location, stopLocation: null };
+    rides.push(activeRide);
     localStorage.setItem('rides', JSON.stringify(rides));
     renderLogs();
-  } catch (err) {
-    alert(err);
+  } catch (error) {
+    alert(error);
   }
 };
 
 stopBtn.onclick = async () => {
   if (!activeRide) return;
   try {
-    const loc = await getLocation();
+    const location = await getLocation();
     activeRide.stop = new Date().toISOString();
-    activeRide.stopLat = loc.lat;
-    activeRide.stopLng = loc.lng;
+    activeRide.stopLocation = location;
     localStorage.setItem('rides', JSON.stringify(rides));
     sendToGoogleSheet(activeRide);
     activeRide = null;
     renderLogs();
-  } catch (err) {
-    alert(err);
+  } catch (error) {
+    alert(error);
   }
 };
+
+function sendToGoogleSheet(data) {
+  fetch(scriptUrl, {
+    method: 'POST',
+    mode: 'no-cors',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(data),
+  }).catch(err => {
+    console.error('Fout bij verzenden naar Google Sheet', err);
+  });
+}
 
 renderLogs();
